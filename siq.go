@@ -2,50 +2,140 @@ package siq
 
 import (
 	"fmt"
-	"mine/Siq/topic_command"
+	"time"
+	"github.com/mrasu/Siq/surface"
+	"github.com/mrasu/Siq/workers"
 )
 
 // Siq is distributed job queue
 type Siq struct {
-	topics map[string]chan topic_command.TopicCommand
+	topics         map[string]chan *surface.TopicCommand
+	topicConsuming map[string]bool
+	wm             *WorkerObserver
 }
 
-func NewSiq() Siq {
-	return Siq{topics: map[string] chan topic_command.TopicCommand{}}
+func NewSiq() *Siq {
+	s := &Siq{
+		topics: map[string]chan *surface.TopicCommand{},
+		wm:     newWorkerManager(),
+	}
+
+	return s
 }
 
-// Add is text
-func(s *Siq) Publish(tName string, m string) {
+func (s *Siq) Start() {
+	go func() {
+		for true {
+			for n, _ := range s.topics {
+				s.StartConsume(n)
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+	}()
+}
+
+func (s *Siq) Register(w workers.Worker) {
+	s.wm.Add(&w)
+}
+
+func (s *Siq) Unregister(w workers.Worker) {
+	s.wm.Delete(&w)
+}
+
+func (s *Siq) Publish(tName string, m string) {
 	s.addMessage(tName, m)
+	s.StartConsume(tName)
 }
 
-func(s *Siq) addMessage(tName string, m string) {
+func (s *Siq) addMessage(tName string, m string) {
 	topic := s.getTopicChannel(tName)
-	<- topic_command.AddTopic(topic, m)
+	surface.AddTopic(topic, m)
 }
 
-func(s *Siq) Consume(tName string) string {
-	var t chan topic_command.TopicCommand
+func (s *Siq) StartConsume(tName string) {
+	if _, exists := s.topicConsuming[tName]; exists {
+		return
+	}
+
+	go func() {
+		s.consumeAllAt(tName)
+		delete(s.topicConsuming, tName)
+		fmt.Printf("consumeAllAt(%s)\n", tName)
+	}()
+}
+
+func (s *Siq) ConsumeTopic(tName string) string {
 	t, ok := s.topics[tName]
 	if !ok {
 		return ""
 	}
 
-	return <- topic_command.DequeTopic(t)
+	return surface.DequeTopic(t)
 }
 
-func(s *Siq) getTopicChannel(n string) chan topic_command.TopicCommand {
+func (s *Siq) getTopicChannel(n string) chan *surface.TopicCommand {
 	if c, ok := s.topics[n]; ok {
 		return c
 	}
-	c := NewTopic(n)
+	c := surface.NewTopic(n)
 	s.topics[n] = c
 	return c
 }
 
-func(s *Siq) Show() {
+func (s *Siq) Show() {
 	fmt.Println("Show Topic!!")
-	for _, t := range(s.topics) {
-		<- topic_command.ShowTopic(t)
+	for _, t := range s.topics {
+		surface.ShowTopic(t)
+	}
+}
+
+func (s *Siq) consumeAllAt(tName string) {
+	t, ok := s.topics[tName]
+	if !ok {
+		return
+	}
+
+	if s.wm.Count() == 0 {
+		return
+	}
+
+	currentNumber := 0
+
+	for true {
+		msg := surface.DequeTopic(t)
+		if msg == "" {
+			break
+		}
+
+		currentNumber, w := s.wm.LockIdleWorker(currentNumber)
+		if w == nil {
+			fmt.Println("***Idle Not Found****")
+			surface.AddTopic(t, msg)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		go func() {
+			defer s.wm.Unlock(w)
+			do, err := (*w).SendMessage(tName, msg)
+			if err != nil {
+				fmt.Printf("Worker[%d] fail: %s\n", (*w).GetId(), err)
+				s.wm.NotifyFail(w)
+			}
+
+			if !do {
+				time.Sleep(1 * time.Second)
+				do, err = (*w).SendMessage(tName, msg)
+				//TODO: pushFirst
+				if !do {
+					surface.AddTopic(t, msg)
+					fmt.Printf("do nothing: %s\n", msg)
+				}
+			}
+			fmt.Printf("finish [%s]\n", msg)
+
+		}()
+
+		currentNumber += 1
 	}
 }

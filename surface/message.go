@@ -1,13 +1,13 @@
-package siq
+package surface
 
 import "fmt"
 
 // Message is ss
 type Message struct {
-	id int
+	id   int
 	Text string
 }
 
-func(m *Message) Show() {
+func (m *Message) Show() {
 	fmt.Printf("Message: %s\n", m.Text)
 }
