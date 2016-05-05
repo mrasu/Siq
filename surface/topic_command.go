@@ -2,12 +2,15 @@ package surface
 
 import (
 	"math/rand"
+	"encoding/json"
+	"strconv"
 )
 
 const (
 	Add TopicCommandType = iota
 	Show
 	Deque
+	GetFrom
 )
 
 type TopicCommandType int
@@ -34,6 +37,19 @@ func ShowTopic(ch chan *TopicCommand) string {
 func DequeTopic(ch chan *TopicCommand) string {
 	c := newTopicCommand(Deque)
 	return <-c.send(ch)
+}
+
+func GetTopicFrom(ch chan *TopicCommand, fromId int) []Message {
+	c := newTopicCommand(GetFrom)
+	c.Message = strconv.Itoa(fromId)
+	messageJson := <- c.send(ch)
+
+	var messages []Message
+	err := json.Unmarshal([]byte(messageJson), &messages)
+	if err != nil {
+		panic(err)
+	}
+	return messages
 }
 
 func newTopicCommand(t TopicCommandType) *TopicCommand {

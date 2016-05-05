@@ -2,9 +2,8 @@ package surface
 
 import "fmt"
 
-// Message is ss
 type Message struct {
-	id   int
+	Id   int
 	Text string
 }
 

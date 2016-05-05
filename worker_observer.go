@@ -12,61 +12,61 @@ type WorkerObserver struct {
 	ss            *SystemSiq
 }
 
-func newWorkerManager() *WorkerObserver {
-	wm := &WorkerObserver{}
-	wm.init()
-	return wm
+func newWorkerObserver(s *Siq) *WorkerObserver {
+	wo := &WorkerObserver{}
+	wo.init(s)
+	return wo
 }
 
-func (wm *WorkerObserver) init() {
-	wm.workingWorker = map[*workers.Worker]struct{}{}
-	wm.workers = []*workers.Worker{}
-	wm.m = &sync.Mutex{}
-	wm.ss = NewSystemSiq(wm)
+func (wo *WorkerObserver) init(s *Siq) {
+	wo.workingWorker = map[*workers.Worker]struct{}{}
+	wo.workers = []*workers.Worker{}
+	wo.m = &sync.Mutex{}
+	wo.ss = NewSystemSiq(wo, s)
 }
 
-func (wm *WorkerObserver) Add(w *workers.Worker) {
-	wm.m.Lock()
-	defer wm.m.Unlock()
-	wm.workers = append(wm.workers, w)
+func (wo *WorkerObserver) Add(w *workers.Worker) {
+	wo.m.Lock()
+	defer wo.m.Unlock()
+	wo.workers = append(wo.workers, w)
 }
 
-func (wm *WorkerObserver) Delete(tw *workers.Worker) {
-	wm.m.Lock()
-	defer wm.m.Unlock()
-	for i, w := range(wm.workers) {
+func (wo *WorkerObserver) Delete(tw *workers.Worker) {
+	wo.m.Lock()
+	defer wo.m.Unlock()
+	for i, w := range(wo.workers) {
 		if w == tw {
-			wm.workers = append(wm.workers[:i], wm.workers[i+1:]...)
+			wo.workers = append(wo.workers[:i], wo.workers[i+1:]...)
 			break
 		}
 	}
 }
 
-func (wm *WorkerObserver) Count() int {
-	return len(wm.workers)
+func (wo *WorkerObserver) Count() int {
+	return len(wo.workers)
 }
 
-func (wm *WorkerObserver) LockIdleWorker(start int) (int, *workers.Worker){
-	wm.m.Lock()
-	defer wm.m.Unlock()
+func (wo *WorkerObserver) LockIdleWorker(start int) (int, *workers.Worker){
+	wo.m.Lock()
+	defer wo.m.Unlock()
 
-	if len(wm.workers) == 0 {
+	if len(wo.workers) == 0 {
 		return -1, nil
 	}
 
-	if len(wm.workers) <= start {
+	if len(wo.workers) <= start {
 		start = 0
 	}
 	next := start
 	for true {
-		w := wm.workers[next]
-		if _, working := wm.workingWorker[w]; !working {
-			wm.workingWorker[w] = struct{}{}
+		w := wo.workers[next]
+		if _, working := wo.workingWorker[w]; !working {
+			wo.workingWorker[w] = struct{}{}
 			return next, w
 		}
 
 		next += 1
-		if len(wm.workers) - 1 < next {
+		if len(wo.workers) - 1 < next {
 			next = 0
 		}
 		if next == start {
@@ -76,15 +76,15 @@ func (wm *WorkerObserver) LockIdleWorker(start int) (int, *workers.Worker){
 	return -1, nil
 }
 
-func (wm *WorkerObserver) Unlock(w *workers.Worker) {
-	wm.m.Lock()
-	defer wm.m.Unlock()
-	if _, ok := wm.workingWorker[w]; ok {
-		delete(wm.workingWorker, w)
+func (wo *WorkerObserver) Unlock(w *workers.Worker) {
+	wo.m.Lock()
+	defer wo.m.Unlock()
+	if _, ok := wo.workingWorker[w]; ok {
+		delete(wo.workingWorker, w)
 	}
 }
 
-func (wm *WorkerObserver) NotifyFail(w *workers.Worker) {
-	wm.Delete(w)
-	wm.ss.AddDyingWorker(w)
+func (wo *WorkerObserver) NotifyFail(w *workers.Worker) {
+	wo.Delete(w)
+	wo.ss.AddDyingWorker(w)
 }

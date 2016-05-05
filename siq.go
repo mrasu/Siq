@@ -11,14 +11,17 @@ import (
 type Siq struct {
 	topics         map[string]chan *surface.TopicCommand
 	topicConsuming map[string]bool
-	wm             *WorkerObserver
+	wo             *WorkerObserver
+	so *SiqObserver
+	backupData []byte
 }
 
-func NewSiq() *Siq {
+func newSiq(so *SiqObserver) *Siq {
 	s := &Siq{
 		topics: map[string]chan *surface.TopicCommand{},
-		wm:     newWorkerManager(),
+		so: so,
 	}
+	s.wo = newWorkerObserver(s)
 
 	return s
 }
@@ -36,21 +39,26 @@ func (s *Siq) Start() {
 }
 
 func (s *Siq) Register(w workers.Worker) {
-	s.wm.Add(&w)
+	s.wo.Add(&w)
 }
 
 func (s *Siq) Unregister(w workers.Worker) {
-	s.wm.Delete(&w)
+	s.wo.Delete(&w)
 }
 
-func (s *Siq) Publish(tName string, m string) {
-	s.addMessage(tName, m)
-	s.StartConsume(tName)
-}
-
-func (s *Siq) addMessage(tName string, m string) {
+func (s *Siq) Publish(tName string, m string) *Siq {
 	topic := s.getTopicChannel(tName)
+	if topic == nil {
+		topicSiq := s.so.GetSiqByTopic(tName)
+		if topicSiq == nil {
+			topic = s.createTopicChannel(tName)
+		} else {
+			return topicSiq
+		}
+	}
 	surface.AddTopic(topic, m)
+	s.StartConsume(tName)
+	return nil
 }
 
 func (s *Siq) StartConsume(tName string) {
@@ -78,8 +86,16 @@ func (s *Siq) getTopicChannel(n string) chan *surface.TopicCommand {
 	if c, ok := s.topics[n]; ok {
 		return c
 	}
+	return nil
+}
+
+func (s *Siq) createTopicChannel(n string) chan *surface.TopicCommand {
 	c := surface.NewTopic(n)
 	s.topics[n] = c
+	err := s.so.SetSiqTopic(n, s)
+	if err != nil {
+		panic(err)
+	}
 	return c
 }
 
@@ -90,13 +106,42 @@ func (s *Siq) Show() {
 	}
 }
 
+func (s *Siq) getTopics() []string{
+	siq_topics := make([]string, 0, len(s.topics))
+	for t := range(s.topics) {
+		siq_topics = append(siq_topics, t)
+	}
+
+	return siq_topics
+}
+
+func (s *Siq) getMessages(tName string, fromId int) []surface.Message {
+	t, ok := s.topics[tName]
+	if ok == false {
+		return []surface.Message{}
+	}
+
+	return surface.GetTopicFrom(t, fromId)
+}
+
+func (s *Siq) getBackupSiq(tName string) *Siq {
+	return s.so.GetBackupSiqByTopic(tName)
+}
+
+func (s *Siq) updateBackup(data []byte) error {
+	s.backupData = append(s.backupData, data...)
+	fmt.Printf("receive backup data %s\n", s.backupData)
+
+	return nil
+}
+
 func (s *Siq) consumeAllAt(tName string) {
 	t, ok := s.topics[tName]
 	if !ok {
 		return
 	}
 
-	if s.wm.Count() == 0 {
+	if s.wo.Count() == 0 {
 		return
 	}
 
@@ -108,7 +153,7 @@ func (s *Siq) consumeAllAt(tName string) {
 			break
 		}
 
-		currentNumber, w := s.wm.LockIdleWorker(currentNumber)
+		currentNumber, w := s.wo.LockIdleWorker(currentNumber)
 		if w == nil {
 			fmt.Println("***Idle Not Found****")
 			surface.AddTopic(t, msg)
@@ -116,11 +161,11 @@ func (s *Siq) consumeAllAt(tName string) {
 			continue
 		}
 		go func() {
-			defer s.wm.Unlock(w)
+			defer s.wo.Unlock(w)
 			do, err := (*w).SendMessage(tName, msg)
 			if err != nil {
 				fmt.Printf("Worker[%d] fail: %s\n", (*w).GetId(), err)
-				s.wm.NotifyFail(w)
+				s.wo.NotifyFail(w)
 			}
 
 			if !do {

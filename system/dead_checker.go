@@ -85,7 +85,6 @@ func(dc *DeadChecker) pollRetry() {
 				}
 
 				if info.count > dc.PollCount {
-					fmt.Printf("Worker(%d) is dead\n", (*w).GetId())
 					go dc.DeadNotifyFunc(w)
 					dc.removeDyingWorkers(w)
 					continue

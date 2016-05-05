@@ -8,11 +8,10 @@ import (
 )
 
 func main() {
-	fmt.Println("aa")
-	s := siq.NewSiq()
-	c := register(s, 1)
-	c2 := register(s, 2)
-	s.Start()
+	sList := siq.StartSiq()
+	s1, s2 := sList[0], sList[1]
+	c := register(s1, 1)
+	c2 := register(s2, 2)
 	//ss := siq.SiqServer{s, 5555}
 	//ss.Start()
 
@@ -22,15 +21,22 @@ func main() {
 	}
 	c.IsDead = true
 
-	s.Publish("tttt", "mmmm")
-	s.Publish("tttt", "mmmm2")
-	s.Publish("tttt", "mmmm3")
-	s.Publish("tttt", "4444")
-	s.Publish("tttt", "+++++5")
-	s.Publish("tttt", "^^^^6")
-	s.Publish("tttt", "-----7")
-	s.Publish("tttt", ":::::8")
-	s.Publish("tttt", "======9")
+
+	currentSiq := s1
+	for i := 0; i < 10; i++ {
+		otherSiq := currentSiq.Publish("tttt", fmt.Sprint("ttt%d", i))
+		if otherSiq != nil {
+			currentSiq = otherSiq
+		}
+	}
+
+	currentSiq = s2
+	for i := 0; i < 10; i++ {
+		otherSiq := currentSiq.Publish("uuuu", fmt.Sprintf("uuuu%d", i))
+		if otherSiq != nil {
+			currentSiq = otherSiq
+		}
+	}
 
 	go func() {
 		//time.Sleep(3 * time.Second)
@@ -60,7 +66,7 @@ func register(s *siq.Siq, id int) *workers.CuiWorker {
 	c := &workers.CuiWorker{
 		Callback: func(t string, m string) string {
 			time.Sleep(1 * time.Second)
-			fmt.Printf("Cui Worker[%d] sendmessage: %s : %s\n", id, t, m)
+			fmt.Printf("Cui Worker[%d] receiveMessage: %s : %s\n", id, t, m)
 			return ""
 		},
 		Capacity: 2,
